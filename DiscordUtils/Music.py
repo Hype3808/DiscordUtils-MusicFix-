@@ -92,31 +92,31 @@ async def get_video_data(url, search, bettersearch, loop):
             channel_url = data["uploader_url"]
             return Song(source, url, title, description, views, duration, thumbnail, channel, channel_url, False)
         
-def check_queue(ctx, opts, music, after, on_play, loop):
+def check_queue(interaction, opts, music, after, on_play, loop):
     if not has_voice:
         raise RuntimeError("DiscordUtils[voice] install needed in order to use voice")
 
     try:
-        song = music.queue[ctx.guild.id][0]
+        song = music.queue[interaction.guild.id][0]
     except IndexError:
         return
     if not song.is_looping:
         try:
-            music.queue[ctx.guild.id].pop(0)
+            music.queue[interaction.guild.id].pop(0)
         except IndexError:
             return
-        if len(music.queue[ctx.guild.id]) > 0:
-            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(music.queue[ctx.guild.id][0].source, **opts))
-            ctx.voice_client.play(source, after=lambda error: after(ctx, opts, music, after, on_play, loop))
-            song = music.queue[ctx.guild.id][0]
+        if len(music.queue[interaction.guild.id]) > 0:
+            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(music.queue[interaction.guild.id][0].source, **opts))
+            interaction.guild.voice_client.play(source, after=lambda error: after(interaction, opts, music, after, on_play, loop))
+            song = music.queue[interaction.guild.id][0]
             if on_play:
-                loop.create_task(on_play(ctx, song))
+                loop.create_task(on_play(interaction, song))
     else:
-        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(music.queue[ctx.guild.id][0].source, **opts))
-        ctx.voice_client.play(source, after=lambda error: after(ctx, opts, music, after, on_play, loop))
-        song = music.queue[ctx.guild.id][0]
+        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(music.queue[interaction.guild.id][0].source, **opts))
+        interaction.guild.voice_client.play(source, after=lambda error: after(interaction, opts, music, after, on_play, loop))
+        song = music.queue[interaction.guild.id][0]
         if on_play:
-            loop.create_task(on_play(ctx, song))
+            loop.create_task(on_play(interaction, song))
 
 class Music(object):
     def __init__(self):
@@ -126,10 +126,10 @@ class Music(object):
         self.queue = {}
         self.players = []
 
-    def create_player(self, ctx, **kwargs):
-        if not ctx.voice_client:
+    def create_player(self, interaction, **kwargs):
+        if not interaction.guild.voice_client:
             raise NotConnectedToVoice("Cannot create the player because bot is not connected to voice")
-        player = MusicPlayer(ctx, self, **kwargs)
+        player = MusicPlayer(interaction, self, **kwargs)
         self.players.append(player)
         return player
         
@@ -137,26 +137,26 @@ class Music(object):
         guild = kwargs.get("guild_id")
         channel = kwargs.get("channel_id")
         for player in self.players:
-            if guild and channel and player.ctx.guild.id == guild and player.voice.channel.id == channel:
+            if guild and channel and player.interaction.guild.id == guild and player.voice.channel.id == channel:
                 return player
             elif not guild and channel and player.voice.channel.id == channel:
                 return player
-            elif not channel and guild and player.ctx.guild.id == guild:
+            elif not channel and guild and player.interaction.guild.id == guild:
                 return player
         else:
             return None
 
 class MusicPlayer(object):
-    def __init__(self, ctx, music, **kwargs):
+    def __init__(self, interaction, music, **kwargs):
         if not has_voice:
             raise RuntimeError("DiscordUtils[voice] install needed in order to use voice")
 
-        self.ctx = ctx
-        self.voice = ctx.voice_client
-        self.loop = ctx.bot.loop
+        self.interaction = interaction
+        self.voice = interaction.guild.voice_client
+        self.loop = interaction.bot.loop
         self.music = music
-        if self.ctx.guild.id not in self.music.queue.keys():
-            self.music.queue[self.ctx.guild.id] = []
+        if self.interaction.guild.id not in self.music.queue.keys():
+            self.music.queue[self.interaction.guild.id] = []
         self.after_func = check_queue
         self.on_play_func = self.on_queue_func = self.on_skip_func = self.on_stop_func = self.on_pause_func = self.on_resume_func = self.on_loop_toggle_func = self.on_volume_change_func = self.on_remove_from_queue_func = None
         ffmpeg_error = kwargs.get("ffmpeg_error_betterfix", kwargs.get("ffmpeg_error_fix"))
@@ -188,75 +188,75 @@ class MusicPlayer(object):
         self.on_remove_from_queue_func = func
     async def queue(self, url, search=False, bettersearch=False):
         song = await get_video_data(url, search, bettersearch, self.loop)
-        self.music.queue[self.ctx.guild.id].append(song)
+        self.music.queue[self.interaction.guild.id].append(song)
         if self.on_queue_func:
-            await self.on_queue_func(self.ctx, song)
+            await self.on_queue_func(self.interaction, song)
         return song
     async def play(self):
-        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(self.music.queue[self.ctx.guild.id][0].source, **self.ffmpeg_opts))
-        self.voice.play(source, after=lambda error: self.after_func(self.ctx, self.ffmpeg_opts, self.music, self.after_func, self.on_play_func, self.loop))
-        song = self.music.queue[self.ctx.guild.id][0]
+        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(self.music.queue[self.interaction.guild.id][0].source, **self.ffmpeg_opts))
+        self.voice.play(source, after=lambda error: self.after_func(self.interaction, self.ffmpeg_opts, self.music, self.after_func, self.on_play_func, self.loop))
+        song = self.music.queue[self.interaction.guild.id][0]
         if self.on_play_func:
-            await self.on_play_func(self.ctx, song)
+            await self.on_play_func(self.interaction, song)
         return song
     async def skip(self, force=False):
-        if len(self.music.queue[self.ctx.guild.id]) == 0:
+        if len(self.music.queue[self.interaction.guild.id]) == 0:
             raise NotPlaying("Cannot loop because nothing is being played")
-        elif not len(self.music.queue[self.ctx.guild.id]) > 1 and not force:
+        elif not len(self.music.queue[self.interaction.guild.id]) > 1 and not force:
             raise EmptyQueue("Cannot skip because queue is empty")
         else:
-            old = self.music.queue[self.ctx.guild.id][0]
+            old = self.music.queue[self.interaction.guild.id][0]
             old.is_looping = False if old.is_looping else False
             self.voice.stop()
             try:
-                new = self.music.queue[self.ctx.guild.id][0]
+                new = self.music.queue[self.interaction.guild.id][0]
                 if self.on_skip_func:
-                    await self.on_skip_func(self.ctx, old, new)
+                    await self.on_skip_func(self.interaction, old, new)
                 return (old, new)
             except IndexError:
                 if self.on_skip_func:
-                    await self.on_skip_func(self.ctx, old)
+                    await self.on_skip_func(self.interaction, old)
                 return old        
     async def stop(self):
         try:
-            self.music.queue[self.ctx.guild.id] = []
+            self.music.queue[self.interaction.guild.id] = []
             self.voice.stop()
             self.music.players.remove(self)
         except:
             raise NotPlaying("Cannot loop because nothing is being played")
         if self.on_stop_func:
-            await self.on_stop_func(self.ctx)
+            await self.on_stop_func(self.interaction)
     async def pause(self):
         try:
             self.voice.pause()
-            song = self.music.queue[self.ctx.guild.id][0]
+            song = self.music.queue[self.interaction.guild.id][0]
         except:
             raise NotPlaying("Cannot pause because nothing is being played")
         if self.on_pause_func:
-            await self.on_pause_func(self.ctx, song)
+            await self.on_pause_func(self.interaction, song)
         return song
     async def resume(self):
         try:
             self.voice.resume()
-            song = self.music.queue[self.ctx.guild.id][0]
+            song = self.music.queue[self.interaction.guild.id][0]
         except:
             raise NotPlaying("Cannot resume because nothing is being played")
         if self.on_resume_func:
-            await self.on_resume_func(self.ctx, song)
+            await self.on_resume_func(self.interaction, song)
         return song
     def current_queue(self):
         try:
-            return self.music.queue[self.ctx.guild.id]
+            return self.music.queue[self.interaction.guild.id]
         except KeyError:
             raise EmptyQueue("Queue is empty")
     def now_playing(self):
         try:
-            return self.music.queue[self.ctx.guild.id][0]
+            return self.music.queue[self.interaction.guild.id][0]
         except:
             return None
     async def toggle_song_loop(self):
         try:
-            song = self.music.queue[self.ctx.guild.id][0]
+            song = self.music.queue[self.interaction.guild.id][0]
         except:
             raise NotPlaying("Cannot loop because nothing is being played")
         if not song.is_looping:
@@ -264,29 +264,29 @@ class MusicPlayer(object):
         else:
             song.is_looping = False
         if self.on_loop_toggle_func:
-            await self.on_loop_toggle_func(self.ctx, song)
+            await self.on_loop_toggle_func(self.interaction, song)
         return song
     async def change_volume(self, vol):
         self.voice.source.volume = vol
         try:
-            song = self.music.queue[self.ctx.guild.id][0]
+            song = self.music.queue[self.interaction.guild.id][0]
         except:
             raise NotPlaying("Cannot loop because nothing is being played")
         if self.on_volume_change_func:
-            await self.on_volume_change_func(self.ctx, song, vol)
+            await self.on_volume_change_func(self.interaction, song, vol)
         return (song, vol)
     async def remove_from_queue(self, index):
         if index == 0:
             try:
-                song = self.music.queue[self.ctx.guild.id][0]
+                song = self.music.queue[self.interaction.guild.id][0]
             except:
                 raise NotPlaying("Cannot loop because nothing is being played")
             await self.skip(force=True)
             return song
-        song = self.music.queue[self.ctx.guild.id][index]
-        self.music.queue[self.ctx.guild.id].pop(index)
+        song = self.music.queue[self.interaction.guild.id][index]
+        self.music.queue[self.interaction.guild.id].pop(index)
         if self.on_remove_from_queue_func:
-            await self.on_remove_from_queue_func(self.ctx, song)
+            await self.on_remove_from_queue_func(self.interaction, song)
         return song
     def delete(self):
         self.music.players.remove(self)
