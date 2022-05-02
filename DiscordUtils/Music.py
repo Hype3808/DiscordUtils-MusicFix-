@@ -153,7 +153,7 @@ class MusicPlayer(object):
 
         self.interaction = interaction
         self.voice = interaction.guild.voice_client
-        self.loop = interaction.bot.loop
+        self.loop = interaction.client.loop
         self.music = music
         if self.interaction.guild.id not in self.music.queue.keys():
             self.music.queue[self.interaction.guild.id] = []
